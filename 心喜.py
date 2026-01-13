@@ -8,7 +8,7 @@
 # - 评论内容来源：一言（轻量文本）
 # - 推送内容美化
 # - 企业微信机器人自动适配
-
+# cron 22 11 * * * 定时自行修改
 
 import requests
 import json,os,sys,re
