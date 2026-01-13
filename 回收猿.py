@@ -5,6 +5,7 @@
 自动签到 + 抽奖 + 查询 ＋今日/七日累计奖励统计
 支持企业微信机器人推送
 支持备注名、多账号、彩色日志、美化推送
+# cron 25 6 * * * 定时自行修改
 """
 
 import os, time, random, hashlib, requests, logging
