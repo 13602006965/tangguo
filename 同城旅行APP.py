@@ -11,6 +11,7 @@ from datetime import datetime
 # 格式：PHONE#APPTOKEN#DEVICE
 # 多账号用 &分隔
 # 账号自动脱敏
+# cron 25 8 * * * 定时自行修改
 # =============================
 push_func = None
 try:
