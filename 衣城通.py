@@ -5,7 +5,7 @@
 变量：yct_gpt ，格式备注@Auth，不需要Bearer 
 功能：全任务执行 + 积分统计 + 青龙通知推送
 注：需先完成新人任务＋再进小程序ck会失效
-
+# cron 25 13 * * * 定时自行修改
 """
 import requests, os, time
 from datetime import datetime
