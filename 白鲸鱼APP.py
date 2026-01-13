@@ -4,6 +4,7 @@ APP和小程序本子分别单独跑
 本项目支持双端签到，答题，盲盒抽奖，幸运抽奖，云宠物
 切记小程序登录抓包即可不要绑定和APP同一个手机号
 环境变量名: bjhs_app
+cron 25 7 * * * 定时自行修改
 """
 import requests,json,re,os,sys,time,random,datetime,threading,execjs,hashlib,base64,urllib3,certifi
 from urllib.parse import quote
