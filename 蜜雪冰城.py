@@ -8,6 +8,7 @@
 1. mxbc_gpt：账号 Token 和昵称，格式为 "Token#昵称"，多个账号用 @ 分隔
 2. PushPlus 消息推送
 3. 私钥已配置
+4. cron 25 8 * * * 定时自行修改
 """
 
 import requests
