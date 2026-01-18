@@ -3,7 +3,11 @@
 【脚本名称】：长虹（#小程序://长虹智慧家居/3mAUsakenataqSB） 每日签到增强版V2.4
 【变量名称】：ch_gpt (格式: Token#备注，多账号用 & 或 换行 分割)
 【参考定时】cron 26 6 * * * 定时自行修改
-import requests, os, time, json
+"""
+import requests
+import os
+import time
+import json
 
 # ========= 推送模块 =========
 try:
@@ -32,7 +36,8 @@ class ChangHongPro:
             res = requests.get(url, headers=self.headers, timeout=10).json()
             if str(res.get("code")) == "200":
                 return int(res.get("data", 0))
-        except:
+        except Exception as e:
+            print(f"❌ 获取积分异常: {e}")
             return 0
         return 0
 
@@ -69,7 +74,7 @@ class ChangHongPro:
         reward = new_score - old_score
         
         # 4. 汇总报告
-        status = "✅ 执行成功" if "操作成功" in results else "⚠️ 检查Token"
+        status = "✅ 执行成功" if any("成功" in r for r in results) else "⚠️ 检查Token"
         reward_text = f"+{reward}" if reward > 0 else "0 (或今日已领)"
         
         if old_score == 0 and new_score == 0:
@@ -93,6 +98,7 @@ def main():
         print("❌ 错误：未在环境变量中找到 ch_gpt")
         return
 
+    # 兼容 & 或 换行 分割
     accounts = raw.replace('&', '\n').strip().splitlines()
     reports = []
     
@@ -104,7 +110,7 @@ def main():
             token = parts[0]
             note = parts[1] if len(parts) > 1 else "默认账号"
             reports.append(ChangHongPro(token, note).run())
-            time.sleep(5) # 账号间隔，防风控
+            time.sleep(5) # 账号间隔
             
     if reports:
         ql_send("📬 长虹智慧家居任务报告", "\n\n".join(reports))
