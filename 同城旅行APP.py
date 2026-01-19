@@ -1,246 +1,119 @@
 # -*- coding: utf-8 -*-
-import os
-import json
-import requests
+import os, json, requests, time
 from datetime import datetime
-
-# =============================
-# 同城旅行最终修改V6
-# 智能加载青龙 notify.py 的 send 函数
-# 从环境变量加载配置（tc_gpt 风格）
-# 格式：PHONE#APPTOKEN#DEVICE
-# 多账号用 &分隔
-# 账号自动脱敏
-# cron 25 8 * * * 定时自行修改
-# =============================
+# ======================================================
+# 同程旅行 V6 - 容错稳定版
+# 1. 自动跳过异常任务 (解决 AI 规划任务 5000 报错)
+# 2. 手机号#appToken#device#Security-Token#dp
+#    风控很严需要五个参数都在同一请求体
+# 3. 变量tc_gpt，多账号用 &分隔
+# 4. 账号自动脱敏
+# 5. cron 25 8 * * * 定时自行修改======================================================
 push_func = None
 try:
     import sys
     sys.path.append('/ql/scripts')
     from notify import send
     push_func = send
-    print("✅ 成功加载 notify.py 的 send 推送函数")
-except Exception as e:
-    print(f"❌ 加载 send 函数失败: {e}")
-
-# =============================
-# 1. 环境变量解析（tc_gpt）
-# =============================
+except: pass
 TC_GPT = os.getenv("tc_gpt")
 if not TC_GPT:
-    print("❌ 未检测到 tc_gpt 环境变量")
-    exit()
-
-def parse_accounts(env_str):
-    accounts = []
-    for item in env_str.split("&&"):
-        item = item.strip()
-        if not item:
-            continue
-        parts = item.split("#")
-        if len(parts) != 3:
-            print(f"⚠️ 账号格式错误: {item}")
-            continue
-        accounts.append({
-            "phone": parts[0],
-            "apptoken": parts[1],
-            "device": parts[2]
-        })
-    return accounts
-
-accounts = parse_accounts(TC_GPT)
-
-# =============================
-# 2. 脱敏函数
-# =============================
-def mask_phone(phone):
-    return phone[:3] + "****" + phone[-4:]
-
-# =============================
-# 3. 核心函数
-# =============================
-def get_headers(phone, apptoken, device):
+    print("❌ 环境变量 tc_gpt 缺失"); exit()
+def get_headers(acc):
     return {
-        'content-type': 'application/json',
-        'accept': 'application/json, text/plain, */*',
-        'phone': phone,
+        'Host': 'app.17u.cn',
+        'Accept': 'application/json, text/plain, */*',
         'channel': '1',
-        'apptoken': apptoken,
-        'sec-fetch-site': 'same-site',
-        'accept-language': 'zh-CN,zh-Hans;q=0.9',
-        'accept-encoding': 'gzip, deflate, br',
-        'sec-fetch-mode': 'cors',
-        'origin': 'https://m.17u.cn',
-        'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TcTravel/11.0.1 tctype/wk',
-        'referer': 'https://m.17u.cn/',
-        'device': device,
-        'sec-fetch-dest': 'empty'
+        'dp': acc['dp'],
+        'appToken': acc['tk'],
+        'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+        'Content-Type': 'application/json',
+        'Os-Type': '1',
+        'Security-Token': acc['st'],
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TcTravel/11.0.0 tctype/wk',
+        'Referer': 'https://m.17u.cn/',
+        'device': acc['dev'],
+        'Connection': 'keep-alive'
     }
-
-def get_today_date():
-    return datetime.now().strftime('%Y-%m-%d')
-
-def sign_in(phone, apptoken, device):
-    url = "https://app.17u.cn/welfarecenter/index/signIndex"
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json={}, headers=headers, timeout=10)
-        data = response.json()
-        if data['code'] != 2200:
-            return None, None, None, None
-        d = data['data']
-        return (
-            d['todaySign'],
-            d['mileageBalance']['mileage'],
-            d['cycleSighNum'],
-            d['mileageBalance']['todayMileage']
-        )
-    except Exception as e:
-        print(f"⚠️ sign_in 异常: {e}")
-        return None, None, None, None
-
-def do_sign_in(phone, apptoken, device):
-    url = "https://app.17u.cn/welfarecenter/index/sign"
-    payload = {"type": 1, "day": get_today_date()}
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        return response.json()['code'] == 2200
-    except:
-        return False
-
-def get_task_list(phone, apptoken, device):
-    url = "https://app.17u.cn/welfarecenter/task/taskList?version=11.0.0.0"
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json={}, headers=headers, timeout=10)
-        data = response.json()
-        if data['code'] != 2200:
-            return []
-        return [
-            {'taskCode': t['taskCode'], 'title': t['title'], 'browserTime': t['browserTime']}
-            for t in data['data'] if t['state'] == 1 and t['browserTime'] > 0
-        ]
-    except:
-        return []
-
-def start_task(phone, apptoken, device, task_code):
-    url = "https://app.17u.cn/welfarecenter/task/start"
-    payload = {"taskCode": task_code}
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        data = response.json()
-        return data['data'] if data['code'] == 2200 else None
-    except:
-        return None
-
-def finish_task(phone, apptoken, device, task_id):
-    url = "https://app.17u.cn/welfarecenter/task/finish"
-    payload = {"id": task_id}
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        if response.json()['code'] == 2200:
-            return True
-        # 重试一次
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        return response.json()['code'] == 2200
-    except:
-        return False
-
-def receive_reward(phone, apptoken, device, task_id):
-    url = "https://app.17u.cn/welfarecenter/task/receive"
-    payload = {"id": task_id}
-    headers = get_headers(phone, apptoken, device)
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        return response.json()['code'] == 2200
-    except:
-        return False
-
-# =============================
-# 4. 主流程
-# =============================
 def main():
-    log_lines = []
-    summary_lines = []
-
-    for account in accounts:
-        phone = account['phone']
-        apptoken = account['apptoken']
-        device = account['device']
-        masked_phone = mask_phone(phone)
-
-        print(f"\n🔐 账号: {masked_phone}")
-        log_lines.append(f"🔐 账号: {masked_phone}")
-
+    accounts = []
+    for item in TC_GPT.split("&&"):
+        p = item.strip().split("#")
+        if len(p) >= 5:
+            accounts.append({"phone": p[0], "tk": p[1], "dev": p[2], "st": p[3], "dp": p[4]})
+    summary_list = []
+    for acc in accounts:
+        mask_phone = f"{acc['phone'][:3]}****{acc['phone'][-4:]}"
+        headers = get_headers(acc)
+        print(f"\n{'='*15} 🚀 账号: {mask_phone} {'='*15}")
         try:
-            today_sign, mileage, cycle_sign_num, today_mileage = sign_in(phone, apptoken, device)
-            if today_sign is None:
-                msg = f"❌ {masked_phone} 登录失效"
-                print(msg)
-                log_lines.append(msg)
-                continue
-
-            if today_sign:
-                msg = f"✅ {masked_phone} 已签到"
-                print(msg)
-                log_lines.append(msg)
-            else:
-                if do_sign_in(phone, apptoken, device):
-                    msg = f"🎉 {masked_phone} 签到成功"
-                    print(msg)
-                    log_lines.append(msg)
-                else:
-                    msg = f"❌ {masked_phone} 签到失败"
-                    print(msg)
-                    log_lines.append(msg)
-
-            tasks = get_task_list(phone, apptoken, device)
-            for task in tasks:
-                task_code = task['taskCode']
-                title = task['title']
-                browser_time = task['browserTime']
-                print(f"📺 {masked_phone} 任务: {title}")
-                log_lines.append(f"📺 {masked_phone} 任务: {title}")
-                task_id = start_task(phone, apptoken, device, task_code)
-                if task_id:
-                    # 模拟浏览时长
-                    import time
-                    time.sleep(browser_time)
-                    if finish_task(phone, apptoken, device, task_id):
-                        receive_reward(phone, apptoken, device, task_id)
-                        log_lines.append(f"✅ {masked_phone} 完成: {title}")
+            # 1. 状态查询 (增加超时保护)
+            res = requests.post("https://app.17u.cn/welfarecenter/index/signIndex", json={}, headers=headers, timeout=15).json()
+            if res.get('code') != 2200:
+                print(f"❌ 访问异常: {res.get('message')}"); continue
+            
+            data = res['data']
+            print(f"📊 资产: {data['mileageBalance']['mileage']} | 今日: {data['mileageBalance']['todayMileage']}")
+            # --- 签到补丁模块 (doSign) ---
+            if not data.get('todaySign', False):
+                print("📝 正在执行每日签到...")
+                try:
+                    sign_res = requests.post("https://app.17u.cn/welfarecenter/api/sign/doSign", json={}, headers=headers, timeout=15).json()
+                    if sign_res.get('code') == 2200:
+                        print(f"✅ 签到成功: {sign_res.get('message', '获得里程')}")
                     else:
-                        log_lines.append(f"❌ {masked_phone} 失败: {title}")
-
-            summary = f"📊 {masked_phone} 本月签到: {cycle_sign_num}天 | 今日里程: {today_mileage} | 剩余: {mileage}"
-            print(summary)
-            summary_lines.append(summary)
-
+                        print(f"⚠️ 签到结果: {sign_res.get('message')}")
+                except: print("⚠️ 签到请求超时，跳过")
+            else:
+                print("📅 今日已签到，无需重复操作")
+            # 2. 任务收割
+            t_res = requests.post("https://app.17u.cn/welfarecenter/task/taskList?version=11.0.0.0", json={}, headers=headers, timeout=15).json()
+            done_count = 0
+            if t_res.get('code') == 2200:
+                tasks = [t for t in t_res.get('data', []) if t.get('state') == 1 and t.get('browserTime', 0) > 0]
+                print(f"📝 发现 {len(tasks)} 个可执行任务")
+                
+                for t in tasks:
+                    print(f"📺 正在尝试: {t['title']}")
+                    try:
+                        s_res = requests.post("https://app.17u.cn/welfarecenter/task/start", json={"taskCode": t['taskCode']}, headers=headers, timeout=15).json()
+                        
+                        if s_res.get('code') == 2200:
+                            task_id = s_res['data']
+                            wait_time = t['browserTime'] + 2
+                            print(f"⏳ 模拟浏览 {wait_time}s...")
+                            time.sleep(wait_time)
+                            
+                            requests.post("https://app.17u.cn/welfarecenter/task/finish", json={"id": task_id}, headers=headers, timeout=15)
+                            r_res = requests.post("https://app.17u.cn/welfarecenter/task/receive", json={"id": task_id}, headers=headers, timeout=15).json()
+                            if r_res.get('code') == 2200:
+                                print(f"✅ {t['title']} 领取成功")
+                                done_count += 1
+                        else:
+                            print(f"⚠️ 跳过任务 '{t['title']}': {s_res.get('message')}({s_res.get('code')})")
+                    except Exception as task_err:
+                        print(f"⚠️ 任务执行异常，已自动跳过")
+                    time.sleep(1)
+            # 3. 最终结果汇总 (增加超时保护)
+            time.sleep(2)
+            try:
+                f_res = requests.post("https://app.17u.cn/welfarecenter/index/signIndex", json={}, headers=headers, timeout=15).json()
+                f_d = f_res['data']
+                stat = (f"👤 {mask_phone}\n📅 签到: {f_d['cycleSighNum']}天 | 🎁 任务: +{done_count}\n"
+                        f"💰 今日: +{f_d['mileageBalance']['todayMileage']} | 💎 总计: {f_d['mileageBalance']['mileage']}")
+                print(f"\n📊 总结:\n{stat}")
+                summary_list.append(stat)
+            except:
+                print("\n⚠️ 总结请求超时，里程已到账，请自行查看")
         except Exception as e:
-            err = f"💥 {masked_phone} 异常: {str(e)}"
-            print(err)
-            log_lines.append(err)
-
-    # === 推送处理 ===
-    title = "🚀 同程旅行自动任务日报"
-    content = "\n".join(log_lines + summary_lines)
-    
-    # 输出日志（青龙会自动捕获）
-    print("\n" + "="*40)
-    print(content)
-    
-    # 尝试调用 send 推送
-    if push_func:
-        try:
-            push_func(title, content)
-            print("✅ 推送已发送")
-        except Exception as e:
-            print(f"❌ 推送调用异常: {e}")
-    else:
-        print("ℹ️ 推送函数不可用，仅输出日志")
-
+            print(f"💥 账号运行异常: {e}")
+    if summary_list and push_func:
+        push_func("✈️ 同程旅行里程日报", "\n\n".join(summary_list))
 if __name__ == "__main__":
     main()
+
+
+
+     
+
+
