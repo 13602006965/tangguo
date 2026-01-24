@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 
 """
-名称：同花顺APP签到 V1.5
+名称：同花顺APP签到 V1.0
 变量：ths_gpt （备注#cookie）多账号换行分割
 功能：签到＋积分统计＋美化推送
 定时：cron 25 8 * * * 每天一次自行修改
