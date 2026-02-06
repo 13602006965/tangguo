@@ -5,8 +5,9 @@ import time
 from datetime import datetime
 
 """
-小程序：益好 签到V1.0
+小程序：益好定制 签到V1.2
 变量名：yh_gpt (格式：备注1#token1&备注2#token2)
+功能：自动签到 + 实时积分查询
 定时：cron 5 6 * * * 一天一次自行修改
 """
 
@@ -14,14 +15,13 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 def qywx_push(title, content):
-    """【硬核推送】绕过任何外部JS/PY文件，直接对接企业微信机器人"""
+    """【硬核推送】直接对接企业微信机器人"""
     key = os.getenv("QYWX_KEY")
     if not key:
-        log("⚠️ 未检测到 QYWX_KEY 环境变量，跳过通知。")
+        log("⚠️ 未检测到 QYWX_KEY，跳过推送。")
         return
     
     url = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}"
-    # 构造企业微信需要的格式
     payload = {
         "msgtype": "text",
         "text": {
@@ -33,14 +33,14 @@ def qywx_push(title, content):
         if res.get("errcode") == 0:
             log("🔔 企业微信推送成功！")
         else:
-            log(f"❌ 推送失败，错误信息：{res.get('errmsg')}")
+            log(f"❌ 推送失败: {res.get('errmsg')}")
     except Exception as e:
-        log(f"💥 推送过程发生异常: {str(e)}")
+        log(f"💥 推送异常: {str(e)}")
 
 class YiHaoSign:
     def __init__(self, name, auth):
         self.name = name
-        # 自动补全 Bearer 开头
+        # 自动补全 Bearer 逻辑
         self.auth = auth if "Bearer" in auth else f"Bearer {auth}"
         self.headers = {
             "Host": "wmall.36588.com.cn",
@@ -53,39 +53,48 @@ class YiHaoSign:
         }
 
     def run(self):
-        # 签到接口 URL (目前签名算法固定)
-        url = "https://wmall.36588.com.cn/shopex-api/user/buyer/members/sign?nonce=fHIJpL&timestamp=1770095890&sign=a9caf743caa89aa50aea68f90659545f"
+        # 1. 执行签到 (保持你原本最稳的地址和签名)
+        sign_url = "https://wmall.36588.com.cn/shopex-api/user/buyer/members/sign?nonce=fHIJpL&timestamp=1770095890&sign=a9caf743caa89aa50aea68f90659545f"
+        status = "未知"
         try:
-            res_obj = requests.post(url, headers=self.headers, json={}, timeout=10)
-            res = res_obj.json()
+            res = requests.post(sign_url, headers=self.headers, json={}, timeout=10).json()
             msg = res.get("message") or res.get("msg") or ""
             
-            # --- 核心状态修复逻辑 ---
             if res.get("success") == True or res.get("code") == 200:
                 status = "✅ 签到成功"
             elif "重复" in msg or "已签到" in msg:
                 status = "💡 今日已签"
             elif "失效" in msg or "过期" in msg:
-                status = "❌ Token已失效"
+                status = "❌ Token失效"
             else:
-                status = f"❓ 异常: {msg}"
+                status = f"❓ {msg}"
+        except:
+            status = "❌ 签到异常"
 
-            return f"👤 账号：{self.name}\n📢 状态：{status}\n💰 积分：内测中\n"
-        except Exception as e:
-            return f"👤 账号：{self.name}\n💥 报错：接口连接失败\n"
+        # 2. 获取实时积分 (接入你刚才抓包的接口)
+        point_val = "获取失败"
+        try:
+            time.sleep(1) # 签到完歇一秒再查，防止被拦截
+            info_url = "https://wmall.36588.com.cn/shopex-api/user/buyer/member"
+            info_res = requests.get(info_url, headers=self.headers, timeout=10).json()
+            if info_res.get("success") == True:
+                # 对应你发的 JSON 结构: result -> point
+                point_val = info_res.get("result", {}).get("point", 0)
+        except:
+            pass
+
+        return f"👤 账号：{self.name}\n📢 状态：{status}\n💰 积分：{point_val}\n"
 
 def main():
-    # 获取环境变量
     yh_env = os.getenv("yh_gpt")
     if not yh_env:
-        log("❌ 找不到变量 yh_gpt，请先设置后再运行！")
+        log("❌ 找不到变量 yh_gpt，请检查青龙环境变量设置！")
         return
     
-    # 解析账号（支持 & 分割）
     accounts = yh_env.split("&")
     results = []
     
-    log(f"找到 {len(accounts)} 个账号，开始执行...")
+    log(f"🚀 开始执行益好签到，共 {len(accounts)} 个账号...")
     for acc in accounts:
         if "#" not in acc:
             continue
@@ -94,9 +103,8 @@ def main():
         res_text = bot.run()
         log(res_text)
         results.append(res_text)
-        time.sleep(1.5) # 防止频率过快
+        time.sleep(2)
 
-    # 汇总结果并推送
     if results:
         final_report = "--------------------\n".join(results)
         qywx_push("益好签到🙋‍♀️", final_report)
