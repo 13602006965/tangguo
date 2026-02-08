@@ -6,7 +6,7 @@ from datetime import datetime
 
 """
 小程序：益好定制 签到V1.2
-变量名：yh_gpt (格式：备注1#token1&备注2#token2)
+变量名：yh_gpt (格式：备注1#Authorization1&备注2#Authorization2)
 功能：自动签到 + 实时积分查询
 定时：cron 5 6 * * * 一天一次自行修改
 """
