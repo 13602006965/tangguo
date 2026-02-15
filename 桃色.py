@@ -1,110 +1,98 @@
 # -*- coding: utf-8 -*-
-import os, requests, time, random, re, urllib3
+import os, requests, time, random, urllib3
 from datetime import datetime
 
 """
 名称：小程序 桃色（趣网商城） V2.0
-变量：ts_gpt （备注#ssid）多账号&分割
+变量：ts_gpt （备注#ssid#pass）多账号&分割
+更新：增加pass值模拟每天点击小程序
 功能：签到＋积分统计＋美化推送
 定时：cron 25 5 * * * 每天一次自行修改
 """
 
-# 屏蔽SSL证书校验警告
+try:
+    from notify import send
+except ImportError:
+    def send(title, content):
+        print(f"\n[通知推送] {title}\n{content}")
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
-class QuWang:
-    def __init__(self, name, ssid):
-        self.name = name
-        self.ssid = ssid
-        # 使用你抓包里的 iPhone UA，更真实
-        self.ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.61"
+ts_gpt = os.getenv("ts_gpt")
+UA = "Mozilla/5.0 (Linux; Android 15; PKG110) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36 XWEB/1380215 MMWEBSDK/20250904 MicroMessenger/8.0.64.2940(0x28004034) MiniProgramEnv/android"
 
-    def login(self):
-        """执行微信登录模拟"""
-        url = "https://wxapp.lllac.com/xqw/login.php"
-        headers = {'User-Agent': self.ua, 'Cookie': f"SSID={self.ssid}"}
-        payload = {'act': "wx_login", 'u_name': "微信用户", 'session_id': self.ssid}
-        try:
-            res = requests.post(url, data=payload, headers=headers, timeout=10, verify=False).json()
-            return res.get('msg', '成功')
-        except: return "登录失败"
-
-    def checkin(self):
-        """执行每日签到"""
-        url = "https://wxapp.lllac.com/xqw/user_mall.php"
-        params = {'act': 'signToday', 'ssid': self.ssid}
-        try:
-            res = requests.post(url, params=params, headers={'User-Agent': self.ua}, timeout=10, verify=False).json()
-            return res.get('msg', '已签到')
-        except: return "签到异常"
-
-    def get_balance(self):
-        """从HTML页面中提取消费积分"""
-        url = "https://wxapp.lllac.com/xqw/user_account_log.php"
-        params = {'ssid': self.ssid}
-        try:
-            res = requests.get(url, params=params, headers={'User-Agent': self.ua}, timeout=10, verify=False)
-            # 正则匹配：提取“消费积分：</strong>数字”
-            p_match = re.search(r'消费积分：</strong>(\d+)', res.text)
-            return p_match.group(1) if p_match else "未知"
-        except: return "查询失败"
-
-    def run(self):
-        log(f"🚀 账号【{self.name}】开始收割...")
-        
-        # 1. 登录验证
-        l_status = self.login()
-        log(f"🔑 登录状态: {l_status}")
-        
-        # 2. 随机延迟后签到
-        time.sleep(random.randint(2, 5))
-        c_status = self.checkin()
-        log(f"📅 签到反馈: {c_status}")
-        
-        # 3. 查账
-        time.sleep(2)
-        balance = self.get_balance()
-        log(f"💰 账户资产: {balance} 趣豆")
-        
-        # 返回格式化的推送内容
-        return f"👤 {self.name}\n🔑 状态：{l_status}\n📅 签到：{c_status}\n💎 余额：{balance} 趣豆\n"
-
-def main():
-    # 变量获取：ts_gpt
-    env = os.getenv("ts_gpt")
-    if not env:
-        log("❌ 错误：请先设置环境变量 ts_gpt")
+def run_task():
+    if not ts_gpt:
+        log("❌ 未配置变量 ts_gpt")
         return
-    
-    # 账号分割
-    accounts = env.split("&")
-    summary = []
-    
-    log(f"ℹ️ 检测到 {len(accounts)} 个收割账号，开始任务...")
-    
-    for acc in accounts:
-        if "#" in acc:
-            name, ssid = acc.split("#")
-            bot = QuWang(name, ssid)
-            summary.append(bot.run())
-            # 账号间随机冷却，防止封IP
-            if len(accounts) > 1:
-                time.sleep(random.randint(5, 10))
-        else:
-            log(f"⚠️ 变量格式不规范: {acc} (应为 备注#ssid)")
 
-    # 4. 汇总推送
-    if summary:
-        report = "【趣网商城收割日报】\n" + "\n".join(summary)
-        print("\n" + "="*30 + "\n" + report + "="*30)
+    accounts = [a for a in ts_gpt.split('&') if a]
+    log(f"ℹ️ 检测到 {len(accounts)} 个账号，开始全任务收割...")
+    
+    summary = []
+
+    for idx, acc in enumerate(accounts, 1):
+        if '#' not in acc: continue
+        items = acc.split('#')
+        mark, ssid = items[0], items[1]
+        device_pass = items[2] if len(items) > 2 else ""
+        
+        log(f"\n🚀 正在收割账号【{mark}】...")
+        headers = {
+            'User-Agent': UA,
+            'Cookie': f'SSID={ssid}',
+            'Referer': 'https://servicewechat.com/wxb96c32e3d2d4b224/102/page-frame.html',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+
         try:
-            from notify import send
-            send("桃色🙋‍♀️趣网商城", report)
-        except:
-            log("📢 未配置通知推送，仅输出日志")
+            # --- 1. 首页唤醒 ---
+            requests.post("https://wxapp.lllac.com/xqw/index.php", data={'act': 'index', 'pass': device_pass, 'session_id': ssid}, headers=headers, timeout=10)
+            
+            # --- 2. 登录同步 ---
+            login_data = {'act': 'wx_login', 'session_id': ssid, 'u_name': '微信用户', 'pass': device_pass}
+            login_res = requests.post("https://wxapp.lllac.com/xqw/login.php", data=login_data, headers=headers, timeout=10).json()
+            log(f"🔑 登录反馈: {login_res.get('msg', '未知')}")
+
+            # --- 3. 核心任务：每日签到 ---
+            sign_res = requests.post("https://wxapp.lllac.com/xqw/user_mall.php", data={'act': 'signToday', 'ssid': ssid}, headers=headers, timeout=10).json()
+            sign_msg = sign_res.get('msg', '已完成')
+            log(f"📅 签到结果: {sign_msg}")
+
+            # --- 4. 额外收割：三个积分任务 (重点添加) ---
+            log("🎁 正在执行额外积分任务...")
+            tasks = [
+                ("新品浏览", "https://wxapp.lllac.com/xqw/goods_v2.php?act=task&id={}&type=28"),
+                ("热销浏览", "https://wxapp.lllac.com/xqw/goods_v2.php?act=task&id={}&type=29"),
+                ("评测阅读", "https://wxapp.lllac.com/xqw/ch_article_info.php?id={}&act=task")
+            ]
+            for t_name, t_url in tasks:
+                t_id = random.randint(3000, 15000)
+                try:
+                    t_res = requests.post(t_url.format(t_id), headers=headers, timeout=10).json()
+                    log(f"   ∟ {t_name}: {t_res.get('msg', '完成')}")
+                except: pass
+                time.sleep(random.uniform(1.5, 3))
+
+            # --- 5. 资产汇总 ---
+            info_res = requests.post("https://wxapp.lllac.com/xqw/user_home_v2.php?act=home", headers=headers, timeout=10).json()
+            points = info_res.get('user_point', '0')
+            dou = info_res.get('user_dou', '0')
+            log(f"💰 统计：积分 {points} | 趣豆 {dou}")
+            
+            summary.append(f"【{mark}】{sign_msg}\n   资产: {points}积分 / {dou}趣豆")
+
+        except Exception as e:
+            log(f"❌ 账号处理出错")
+            summary.append(f"【{mark}】执行失败")
+        
+        time.sleep(8)
+
+    if summary:
+        send("桃色🙋‍♀️趣网商城日报", "\n".join(summary))
 
 if __name__ == "__main__":
-    main()
+    run_task()
